@@ -1,4 +1,4 @@
-import { loadBYOKConfig, saveBYOKConfig, callLLM, generateSetupHTML, getBuiltinProviders } from './lib/byok.js';
+import { loadBYOKConfig, saveBYOKConfig, callLLM, generateSetupHTML } from './lib/byok.js';
 
 const BRAND = '#059669';
 const ACCENT = '#d97706';
@@ -12,6 +12,17 @@ const FEATURES = [
   { icon: '🛡️', title: 'Risk Management', desc: 'Automated risk assessment and position sizing' },
   { icon: '🔑', title: 'Multi-Provider BYOK', desc: 'Bring OpenAI, Anthropic, DeepSeek, or any OpenAI-compatible provider' },
 ];
+
+const SEED_DATA = {
+  trading: {
+    strategies: ['Mean Reversion', 'Momentum', 'Pairs Trading', 'Dollar Cost Average', 'Value Investing', 'Swing Trading', 'Arbitrage'],
+    riskManagement: ['Position Sizing (Kelly Criterion)', 'Stop Loss', 'Take Profit', 'Drawdown Limits', 'Correlation Analysis', 'VaR'],
+    marketAnalysis: ['Technical Analysis', 'Fundamental Analysis', 'Sentiment Analysis', 'On-Chain Analysis', 'Macro Analysis', 'Sector Rotation'],
+    assetClasses: ['Equities', 'Crypto', 'Forex', 'Commodities', 'Fixed Income', 'Options', 'ETFs'],
+  },
+};
+
+const FLEET = { name: NAME, tier: 2, domain: 'finance-trading', fleetVersion: '2.0.0', builtBy: 'Superinstance & Lucineer (DiGennaro et al.)' };
 
 function landingHTML(): string {
   const featureCards = FEATURES.map(f =>
@@ -35,6 +46,12 @@ function landingHTML(): string {
 
 const CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://*;";
 
+function confidenceScore(context: string): number {
+  const cues = ['ticker', 'price', 'volume', 'market cap', 'P/E', 'RSI', 'MACD', 'support', 'resistance', 'portfolio', 'risk'];
+  const hits = cues.filter(c => context.toLowerCase().includes(c)).length;
+  return Math.min(0.5 + hits * 0.07, 1.0);
+}
+
 export default {
   async fetch(request: Request, env: any): Promise<Response> {
     const url = new URL(request.url);
@@ -42,8 +59,12 @@ export default {
     const jsonHeaders = { 'Content-Type': 'application/json' };
 
     if (url.pathname === '/') return new Response(landingHTML(), { headers });
-    if (url.pathname === '/health') return new Response(JSON.stringify({ status: 'ok', service: NAME }), { headers: jsonHeaders });
+    if (url.pathname === '/health') return new Response(JSON.stringify({ status: 'ok', service: NAME, fleet: FLEET }), { headers: jsonHeaders });
     if (url.pathname === '/setup') return new Response(generateSetupHTML(NAME, BRAND), { headers });
+
+    if (url.pathname === '/api/seed') {
+      return new Response(JSON.stringify({ service: NAME, seed: SEED_DATA }, null, 2), { headers: jsonHeaders });
+    }
 
     if (url.pathname === '/api/byok/config') {
       if (request.method === 'GET') {
@@ -61,17 +82,66 @@ export default {
       const config = await loadBYOKConfig(request, env);
       if (!config) return new Response(JSON.stringify({ error: 'No provider configured. Visit /setup' }), { status: 401, headers: jsonHeaders });
       const body = await request.json();
+      const lastMsg = (body.messages || []).slice(-1)[0]?.content || '';
+      const conf = confidenceScore(lastMsg);
+      if (env?.ACTIVELEDGER_KV) {
+        try {
+          await env.ACTIVELEDGER_KV.put(`chat:${Date.now()}`, JSON.stringify({ summary: lastMsg.slice(0, 200), confidence: conf, ts: new Date().toISOString() }), { expirationTtl: 86400 });
+        } catch {}
+      }
       return callLLM(config, body.messages || [], { stream: body.stream, maxTokens: body.maxTokens, temperature: body.temperature });
     }
 
-    const stubRoutes: Record<string, string> = {
-      '/api/portfolio': 'Portfolio tracking',
-      '/api/trades': 'Trade execution and history',
-      '/api/agents': 'Trading repo-agent management',
-      '/api/market': 'Market data and analysis',
-    };
-    if (stubRoutes[url.pathname]) {
-      return new Response(JSON.stringify({ service: NAME, endpoint: url.pathname, message: stubRoutes[url.pathname] }), { headers: jsonHeaders });
+    // ── Portfolio ──
+    if (url.pathname === '/api/portfolio') {
+      if (request.method === 'POST') {
+        const data = await request.json();
+        const item = { id: Date.now().toString(36), ...data, createdAt: new Date().toISOString() };
+        if (env?.ACTIVELEDGER_KV) {
+          const portfolio = JSON.parse(await env.ACTIVELEDGER_KV.get('portfolio') || '[]');
+          portfolio.push(item);
+          await env.ACTIVELEDGER_KV.put('portfolio', JSON.stringify(portfolio));
+        }
+        return new Response(JSON.stringify({ item }), { headers: jsonHeaders });
+      }
+      const portfolio = env?.ACTIVELEDGER_KV ? JSON.parse(await env.ACTIVELEDGER_KV.get('portfolio') || '[]') : [];
+      return new Response(JSON.stringify({ portfolio }), { headers: jsonHeaders });
+    }
+
+    // ── Trades ──
+    if (url.pathname === '/api/trades') {
+      if (request.method === 'POST') {
+        const data = await request.json();
+        const trade = { id: Date.now().toString(36), ...data, createdAt: new Date().toISOString(), confidence: confidenceScore(data.context || '') };
+        if (env?.ACTIVELEDGER_KV) {
+          const trades = JSON.parse(await env.ACTIVELEDGER_KV.get('trades') || '[]');
+          trades.push(trade);
+          await env.ACTIVELEDGER_KV.put('trades', JSON.stringify(trades));
+        }
+        return new Response(JSON.stringify({ trade }), { headers: jsonHeaders });
+      }
+      const trades = env?.ACTIVELEDGER_KV ? JSON.parse(await env.ACTIVELEDGER_KV.get('trades') || '[]') : [];
+      return new Response(JSON.stringify({ trades }), { headers: jsonHeaders });
+    }
+
+    // ── Market ──
+    if (url.pathname === '/api/market') {
+      // Simulated market data (no Google API)
+      const seed = SEED_DATA.trading;
+      return new Response(JSON.stringify({
+        service: NAME,
+        market: {
+          supportedStrategies: seed.strategies,
+          analysisTypes: seed.marketAnalysis,
+          riskFrameworks: seed.riskManagement,
+          note: 'Real market data requires external API integration (CoinGecko, Alpha Vantage, etc.)',
+        },
+      }), { headers: jsonHeaders });
+    }
+
+    // ── Agents stub ──
+    if (url.pathname === '/api/agents') {
+      return new Response(JSON.stringify({ service: NAME, endpoint: '/api/agents', message: 'Trading repo-agent management — coming soon' }), { headers: jsonHeaders });
     }
 
     return new Response('Not Found', { status: 404 });
