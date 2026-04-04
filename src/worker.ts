@@ -4,7 +4,6 @@ import { evapPipeline, getEvapReport, getLockStats } from './lib/evaporation-pip
 import { selectModel } from './lib/model-router.js';
 import { trackConfidence, getConfidence } from './lib/confidence-tracker.js';
 import { loadBYOKConfig, saveBYOKConfig, callLLM, generateSetupHTML } from './lib/byok.js';
-import { evapPipeline } from './lib/evaporation-pipeline.js';
 
 import { deadbandCheck, deadbandStore, getEfficiencyStats } from './lib/deadband.js';
 import { logResponse } from './lib/response-logger.js';

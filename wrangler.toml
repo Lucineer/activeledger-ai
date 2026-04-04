@@ -1,7 +1,8 @@
 name = "activeledger-ai"
 main = "src/worker.ts"
 compatibility_date = "2024-12-01"
+account_id = "049ff5e84ecf636b53b162cbb580aae6"
 
 [[kv_namespaces]]
 binding = "ACTIVELEDGER_KV"
-id = "782211d45e694019acae90b021a6cf6f"
+id = "77d7a16dc7ab47079f816085833d0baf"
