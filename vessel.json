@@ -6,9 +6,17 @@
   "category": "lifestyle",
   "description": "AI-powered Activeledger companion",
   "icon": "ship",
-  "endpoints": ["/", "/health", "/vessel.json"],
+  "endpoints": [
+    "/",
+    "/health",
+    "/vessel.json"
+  ],
   "deployment": {
     "platform": "cloudflare-workers",
     "url": "https://activeledger-ai.casey-digennaro.workers.dev"
-  }
+  },
+  "capabilities": [
+    "finance-tracking",
+    "transaction-management"
+  ]
 }
